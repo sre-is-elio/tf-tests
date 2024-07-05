@@ -1,21 +1,24 @@
 provider "aws" {
-  region  = "us-east-2"
-  profile = "stanza-dev"
-  default_tags {
-    tags = {
-      Name = "tf-tests"
+  region  = var.aws_providers.primary.region
+  profile = var.aws_providers.primary.is_assumable_role == false ? try(var.aws_providers.primary.profile, null) : null
+  dynamic "assume_role" {
+    for_each = var.aws_providers.primary.is_assumable_role == true ? try({ role = var.aws_providers.primary.role }, tomap({})) : tomap({})
+    content {
+      role_arn = assume_role.value
     }
+  }
+
+  default_tags {
+    tags = local.tags
   }
 }
 
 provider "aws" {
   alias   = "identitystore"
   region  = "us-east-1"
-  profile = "stanza-dev"
+  profile = "default"
   default_tags {
-    tags = {
-      Name = "tf-tests"
-    }
+    tags = local.tags
   }
 }
 
@@ -24,9 +27,7 @@ provider "aws" {
   region  = "us-east-1"
   profile = "stanza-root"
   default_tags {
-    tags = {
-      Name = "tf-tests"
-    }
+    tags = local.tags
   }
 }
 

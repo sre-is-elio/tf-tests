@@ -1,3 +1,5 @@
+data "aws_organizations_organization" "stanza" {}
+
 data "aws_caller_identity" "current" {}
 
 resource "null_resource" "get_aws_sso_users_by_groups" {
@@ -17,8 +19,14 @@ resource "null_resource" "get_aws_sso_users_by_groups" {
   }
 }
 
-locals {
+resource "time_sleep" "get_aws_sso_users_by_groups" {
   depends_on = [null_resource.get_aws_sso_users_by_groups]
+
+  create_duration = "30s"
+}
+
+locals {
+  depends_on = [time_sleep.get_aws_sso_users_by_groups]
 
   automation_roles = sort(distinct([
     "GitHubOrganizationAccountAssumeRole",
@@ -92,6 +100,14 @@ locals {
       format("%s/%s", parts[0], element(parts, length(parts) - 1))
     ]
   ])))
+
+  tags = {
+    Environment = "sharedtools"
+    GitHubOrg   = "StanzaSystems"
+    GitHubRepo  = "tf-helm-argocd"
+    Managed_by  = "Terraform"
+    Name        = "sharedtools-argocd"
+  }
 }
 
 data "aws_ssoadmin_instances" "instances" {
@@ -129,7 +145,6 @@ resource "aws_iam_policy" "sops_kms_policy" {
           "kms:Decrypt"
         ],
         Resource = [
-          "arn:aws:kms:us-east-2:${data.aws_caller_identity.current.account_id}:key/298bb098-358c-4429-ab7a-125ca91e9c1d", # Replace REGION, ACCOUNT_ID, and KEY_ID with your KMS key details
           aws_kms_key.key.arn
         ]
       }
@@ -205,7 +220,28 @@ resource "aws_kms_key" "key" {
           "kms:DescribeKey"
         ],
         Resource = "*"
-      }
+      },
+      # {
+      #   Sid    = "Allow OrganizationUsers Encrypt/Decrypt with current key",
+      #   Effect = "Allow",
+      #   Principal = {
+      #     AWS = "*"
+      #   },
+      #   Action = [
+      #     "kms:Decrypt",
+      #     "kms:DescribeKey",
+      #     "kms:Encrypt",
+      #     "kms:GenerateDataKey*",
+      #     "kms:GetKeyPolicy",
+      #     "kms:ReEncrypt*",
+      #   ],
+      #   Resource = "*",
+      #   Condition = {
+      #     "StringEquals" = {
+      #       "aws:PrincipalOrgID" = data.aws_organizations_organization.stanza.id
+      #     }
+      #   }
+      # }
     ]
   })
 }
