@@ -20,6 +20,8 @@ resource "null_resource" "get_aws_sso_users_by_groups" {
 locals {
   depends_on = [null_resource.get_aws_sso_users_by_groups]
 
+  account_id = data.aws_caller_identity.current.account_id
+
   automation_roles = sort(distinct([
     "GitHubOrganizationAccountAssumeRole",
     "OrganizationAccountAccessRole",
@@ -146,7 +148,13 @@ resource "aws_iam_role" "sops_kms_role" {
       {
         Effect = "Allow",
         Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AWSAdministratorAccess_377b9231c1045730" # Replace ACCOUNT_ID with your AWS account ID
+          AWS = sort(distinct(flatten([
+            "arn:aws:iam::129086617226:root",
+            "arn:aws:iam::${local.account_id}:root",
+            data.aws_iam_roles.automation.arns,
+            data.aws_iam_roles.admin.arns,
+            data.aws_iam_roles.poweruser.arns,
+          ])))
         },
         Action = "sts:AssumeRole"
       }
@@ -162,7 +170,10 @@ resource "aws_iam_role_policy_attachment" "sops_kms_role_attachment" {
 resource "aws_kms_key" "key" {
   description             = "KMS key to encrypt and decrypt"
   deletion_window_in_days = 10
+}
 
+resource "aws_kms_key_policy" "key" {
+  key_id = aws_kms_key.key.key_id
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
@@ -175,13 +186,16 @@ resource "aws_kms_key" "key" {
               for email, user in local.admin_users_with_assumed_roles :
               user.AssumedRoleArn
             ],
-            [
-              "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-            ]
+            "arn:aws:iam::129086617226:root",
+            "arn:aws:iam::${local.account_id}:root",
+            data.aws_iam_roles.automation.arns,
+            data.aws_iam_roles.admin.arns,
           ])))
         },
-        Action   = "kms:*",
-        Resource = "*"
+        Action = "kms:*",
+        Resource = [
+          aws_kms_key.key.arn
+        ]
       },
       {
         Sid    = "Allow use of the key",
@@ -192,9 +206,10 @@ resource "aws_kms_key" "key" {
               for email, user in local.powerusers_with_assumed_roles :
               user.AssumedRoleArn
             ],
-            [
-              "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/KMSDecryptRole"
-            ]
+            "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/KMSDecryptRole",
+            data.aws_iam_roles.automation.arns,
+            data.aws_iam_roles.admin.arns,
+            data.aws_iam_roles.poweruser.arns,
           ])))
         },
         Action = [
@@ -204,7 +219,9 @@ resource "aws_kms_key" "key" {
           "kms:GenerateDataKey*",
           "kms:DescribeKey"
         ],
-        Resource = "*"
+        Resource = [
+          aws_kms_key.key.arn
+        ]
       }
     ]
   })
